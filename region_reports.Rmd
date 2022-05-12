@@ -1,0 +1,552 @@
+---
+title: "Schrute Paper"
+subtitle: "Annual `r params$param1` region summary"
+date: "`r params$date`"
+# output:
+#   pagedown::html_paged:
+#     css: windmills_css.css
+#     
+output:
+  pagedreport::paged_windmill:
+    fig_caption: true
+knit: pagedown::chrome_print
+params:
+    date: !r format(Sys.Date(), "%B %d, %Y")
+    param1: x
+---
+
+```{css, echo = FALSE}
+:root {
+    --background: whitesmoke;
+    --pagedjs-width: 210mm;
+    --pagedjs-height: 297mm;
+    --color-paper: white;
+    --color-mbox: rgba(0, 0, 0, 0.2);
+    --running-title-width: 2.5in;
+    --screen-pages-spacing: 2mm;
+    --main-color: #000000;
+    --main-font: "Gelasio";
+    --header-font: "Inter";
+  }
+
+
+h1 {
+  font-size: 16pt;
+}
+
+h2 {
+  font-size: 14pt;
+}
+
+p.caption {
+  font-size: 8pt;
+}
+
+<!-- body { -->
+<!-- text-align: justify -->
+<!-- } -->
+```
+
+
+```{r setup, include=FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#------------ reproducibility #------------
+# for reproducibility define required packages and set working directory
+# library(tidyverse)
+# library(rstudioapi)
+# library(janitor)
+# library(reshape2)
+# library(scales)
+# library(lubridate)
+# library(gt)
+# #library(cowplot)
+# library(grid)
+# library(patchwork) # devtools::install_github("thomasp85/patchwork")
+# # library(egg)
+# # library(latticeExtra)
+# # library(pdp)
+# library(ggrepel)
+library(tidyverse)
+library(rstudioapi)
+library(janitor)
+library(reshape2)
+library(scales)
+library(lubridate)
+library(gt)
+library(ggrepel)
+library(patchwork)
+library(tidyquant)
+library(timetk)
+library(priceR)
+# tinytex::install_tinytex() # install tinytex() if you get an error: "No LaTeX installation detected"
+# dir_script <- dirname(rstudioapi::getSourceEditorContext()$path) # extract the filepath in which this script and dataset are saved
+# # setwd(dir_script) # set working directory so the script finds the dataset
+data <- read.csv("C:/Users/wainr/OneDrive/Documents/db_project_2022/scripts/sales_exploration/sales_exploration/cleandata.csv", header = TRUE) # load data, from https://www.kaggle.com/datasets/vivek468/superstore-dataset-final?resource=download
+# 
+# #------------ data cleaning #------------
+working_data <- data # work on a copy of the data
+# # change date columns to class:date
+cols.to.date <- grep('date', names(working_data), ignore.case = TRUE) # find index of column(s) containing the word 'date'
+for (i in 1:length(cols.to.date)){
+  working_data[,cols.to.date[i]] <- as.Date(working_data[,cols.to.date[i]], format = '%Y-%m-%d') # change columns containing the word 'date' to Date format
+}
+# # change factor columns to class:factor
+data.classes <- lapply(working_data, class) # find the class of all columns
+# # if the column class == 'character' then that column should be changed to a factor
+data.classes <- lapply(working_data, class) # extract class of all columns
+data.classes <- melt(data.classes)
+chr.to.fct <- subset(data.classes, value == 'character')$L1
+working_data[chr.to.fct] <- lapply(working_data[chr.to.fct], as.factor) # https://stackoverflow.com/questions/35426903/change-class-of-multiple-columns-in-data-frame-without-for-loop
+# glimpse(working_data)
+# # In this dataset, integers should also be factors
+int.to.fct <- subset(data.classes, L1 != 'Quantity') # leave Quantity as integer
+int.to.fct <- subset(int.to.fct, value == 'integer')$L1 # change other integers to factors
+working_data[int.to.fct] <- lapply(working_data[int.to.fct], as.factor) # https://stackoverflow.com/questions/35426903/change-class-of-multiple-columns-in-data-frame-without-for-loop
+# 
+working_data <- working_data %>% filter(Region == params$param1)
+```
+# Schrute Paper `r params$param1` region annual summary
+## Industry and Schrute summary
+We are Schrute Paper, the foremost purveyor of fine paper and paper accessories. At Schrute Paper, a Scranton, PA-based family-owned business since 1945, we search the world over for paper products from nitrogen-rich soils and bring those products to our customers with a zero-downtime guarantee.\
+
+\
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = paste('Schrute', params$param1, 'region map.')}
+
+library(usmap)
+library(ggplot2)
+
+stateregion_lu <- working_data %>%
+  group_by(Region) %>%
+  dplyr::summarize(
+    State = State
+  )
+stateregion_lu <- distinct(stateregion_lu, State, .keep_all = TRUE)
+
+# Then make a list of length(unique(regions)) that contains elements of length(unique(states)) for each region
+stateregion_list <- vector(mode = "list", length = (length(unique(stateregion_lu$Region)))) #empty list to receive state strings for each region
+names(stateregion_list) <- unique(stateregion_lu$Region) #name elements of list for convenience
+for(i in 1:length(stateregion_list)){ #for loop filling list elements with strings of state abbreviations
+  #for(j in 1:boots){
+  stateregion_list[[i]] <- subset(stateregion_lu, Region == unique(stateregion_lu$Region)[i])$State
+}
+
+states <- plot_usmap("states")
+region <- plot_usmap("states", include = stateregion_lu$State, fill = "red")
+ggplot() +
+  states$layers[[1]] +
+  region$layers[[1]] +
+  region$theme +
+  coord_equal()
+
+
+
+```
+
+\newpage
+
+## Schrute Paper `r params$param1` region financial summary
+
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = paste('Sales trends for Schrute Paper ', params$param1, '. Black points are monthly totals. The solid blue trendline is the simple (ordinary least squares) linear regression model of monthly averages. The gray band around the blue trendline shows the 95% confidence interval around model mean predictions. The dashed black line is the six-month moving average of monthly averages.')}
+d1 <-
+  working_data %>%
+  timetk::summarise_by_time(
+    .date_var = Order.Date,
+    .by = "month",
+    total_sales = sum(Sales)
+  )
+
+rev_lm <- lm(total_sales ~ Order.Date, data = d1)
+rev_lm_predictions <- predict(rev_lm) # extract preditions (y-hat values)
+start_rev <- rev_lm_predictions[1]
+end_rev <- rev_lm_predictions[length(rev_lm_predictions)]
+
+p1 <- ggplot(data = d1, aes(x=Order.Date, y = total_sales)) +
+  geom_point() +
+  geom_ma(ma_fun = SMA, n = 6, color = "black")+ # https://www.r-bloggers.com/2021/04/ggplot-with-moving-averages/
+  # geom_smooth(method = lm, formula = y ~ splines::bs(x, 3), se = TRUE)+
+  geom_smooth(method = lm, formula = y~x)+
+  # geom_smooth()+
+  labs(title = "Monthly Revenue ($)",
+       # subtitle = "Simple linear regression and 6-month moving average",
+       x = '',
+       y = "Revenue ($)") +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  theme_bw()
+
+d2 <-
+  working_data %>%
+  timetk::summarise_by_time(
+    .date_var = Order.Date,
+    .by = "month",
+    orders = n()
+  )
+
+order_lm <- lm(orders ~ Order.Date, data = d2)
+order_lm_predictions <- predict(order_lm) # extract preditions (y-hat values)
+start_orders <- round(order_lm_predictions[1],0)
+end_orders <- round(order_lm_predictions[length(order_lm_predictions)],0)
+
+p2 <- ggplot(data = d2, aes(x=Order.Date, y = orders)) +
+  geom_point() +
+  geom_ma(ma_fun = SMA, n = 6, color = "black")+ # https://www.r-bloggers.com/2021/04/ggplot-with-moving-averages/
+  # geom_smooth(method = lm, formula = y ~ splines::bs(x, 3), se = TRUE)+
+  geom_smooth(method = lm, formula = y~x)+
+  # geom_smooth()+
+  labs(title = "Monthly order volume",
+       # subtitle = "Simple linear regression and 6-month moving average",
+       x = '',
+       y = "Orders") +
+  theme_bw()
+
+d3 <-
+  working_data %>%
+  timetk::summarise_by_time(
+    .date_var = Order.Date,
+    .by = "month",
+    avg_gpp = mean(Profit)/mean(Sales)
+  )
+
+gp_lm <- lm(avg_gpp ~ Order.Date, data = d3)
+gp_lm_predictions <- predict(gp_lm) # extract preditions (y-hat values)
+start_gpp <- gp_lm_predictions[1]
+end_gpp <-  gp_lm_predictions[length(gp_lm_predictions)]
+
+p3 <- ggplot(data = d3, aes(x=Order.Date, y = avg_gpp)) +
+  geom_point() +
+  geom_ma(ma_fun = SMA, n = 6, color = "black")+ # https://www.r-bloggers.com/2021/04/ggplot-with-moving-averages/
+  # geom_smooth(method = lm, formula = y ~ splines::bs(x, 3), se = TRUE)+
+  geom_smooth(method = lm, formula = y~x)+
+  # geom_smooth()+
+  labs(title = "Monthly gross profit (% of revenue)",
+       # subtitle = "Simple linear regression and 6-month moving average",
+       x = '',
+       y = "Gross profit (%)") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  theme_bw()
+
+library(patchwork)
+p1 / p2 / p3 +
+plot_annotation(#title = "Title",
+  #subtitle = "Subtitle",
+  tag_levels = 'a',
+  tag_suffix = ')')
+
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# regional reports Fig 1 dynamic text
+# subset data for the 'good' months and the 'bad' months
+bad_months <- subset(working_data, format(Order.Date, "%m") %in% paste0('0',as.character(c(seq(from = 01, to = 8, by = 1)))))
+`%notin%` <- Negate(`%in%`)
+good_months <- subset(working_data, format(Order.Date, "%m") %notin% paste0('0',as.character(c(seq(from = 01, to = 8, by = 1)))))
+
+d_b <-
+bad_months %>%
+  mutate(month = month(Order.Date)) %>%
+  group_by(month) %>%
+  dplyr::summarize(
+    monthly_rev = sum(Sales),
+    transactions = n())
+
+d_g <-
+good_months %>%
+  mutate(month = month(Order.Date)) %>%
+  group_by(month) %>%
+  dplyr::summarize(
+    monthly_rev = sum(Sales),
+    transactions = n())
+```
+
+
+Schrute Paper `r params$param1`'s business is seasonal. Historically, our `r length(unique(d_g$month))` month busy season, `r format(min(good_months$Order.Date), "%B")` through `r format(max(good_months$Order.Date), "%B")`, accounted for `r sprintf("%0.0f%%", length(unique(good_months$Order.ID)) / length(unique(working_data$Order.ID)) * 100)` of orders and `r sprintf("%0.0f%%", sum(good_months$Sales) / sum(working_data$Sales) * 100)` of revenue (Figure 1.2 a and b).
+
+Schrute Paper `r params$param1`'s business `r ifelse(end_rev > start_rev && end_orders > start_orders,"grown",ifelse(start_rev > end_rev && start_orders > end_orders,        "shrank","varied"))` over time. Since `r format(min(working_data$Order.Date), "%Y")`, monthly mean revenue `r ifelse(end_rev > start_rev, "increased", "decreased")` from `r format_dollars(start_rev)` to `r format_dollars(end_rev)`. Monthly order volume `r ifelse(end_orders > start_orders, "matched", "reversed")` this trend and `r ifelse(end_orders > start_orders, "increased", "decreased")` from `r start_orders` orders in `r format(min(working_data$Order.Date), "%B %Y")` to `r end_orders` orders in `r format(max(working_data$Order.Date), "%B %Y")`. Since `r format(min(working_data$Order.Date), "%Y")`, monthly gross profit (as a percentage of revenue) `r ifelse(sprintf("%0.0f%%", 100*end_gpp) == sprintf("%0.0f%%", 100*start_gpp), paste0('remained relatively consistent seasonally and year-to-year at ', sprintf("%0.0f%%", 100*start_gpp)), ifelse(sprintf("%0.0f%%", 100*end_gpp) > sprintf("%0.0f%%", 100*start_gpp), paste0('increased from ', sprintf("%0.0f%%", 100*start_gpp), ' to ', sprintf("%0.0f%%", 100*end_gpp)), paste0('decreased from ', sprintf("%0.0f%%", 100*start_gpp), ' to ', sprintf("%0.0f%%", 100*end_gpp))))` (Figure 1.2 c).
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = paste('Schrute', params$param1, 'region 2021 revenue by product category and shipment method.')}
+# ----Figure: pie chart of profit by product category
+
+############### pie charts
+library(ggrepel)
+d2 <-
+  working_data %>% 
+  filter(Order.Date >= "2021-01-01" & Order.Date <= "2021-12-31") %>%
+  group_by(Category) %>%
+  dplyr::summarize(
+    total_sales = sum(Sales)
+  )
+d2 <- d2 %>% 
+  arrange(desc(Category)) %>%
+  mutate(prop = total_sales / sum(d2$total_sales) *100) %>%
+  mutate(ypos = cumsum(prop)- 0.5*prop )
+
+p1 <-
+  ggplot(d2,
+         aes(x="",
+             y=prop,
+             fill=Category)
+  ) +
+  geom_col(width=1,
+           color="white"
+  ) +
+  coord_polar(theta = "y",
+              start=0,
+              clip = "off"
+  ) +
+  geom_text_repel(data = d2,
+                  aes(y = ypos,
+                      label = paste0(
+                        Category, "\n",
+                        round(prop,0),
+                        "%",
+                        "; ",
+                        dollar_format(largest_with_cents = 10)(total_sales))
+                  ),
+                  fontface = "bold",
+                  color = "white",
+                  bg.color = "black",
+                  size = 5,
+                  nudge_x = 0.1,
+                  nudge_y = 0.2,
+                  show.legend = FALSE,
+                  min.segment.length = Inf
+  ) +
+  labs(title = 'a) Product category') + 
+  theme_void() + 
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(), 
+        legend.position = "none") +
+  scale_fill_brewer(palette="Set1")
+
+# ----Figure: pie chart of profit by ship mode
+d3 <-
+  working_data %>% 
+  filter(Order.Date >= "2021-01-01" & Order.Date <= "2021-12-31") %>%
+  group_by(Ship.Mode) %>%
+  dplyr::summarize(
+    total_sales = sum(Sales)
+  )
+d4 <- d3 %>% 
+  arrange(desc(Ship.Mode)) %>%
+  mutate(prop = total_sales / sum(d2$total_sales) *100) %>%
+  mutate(ypos = cumsum(prop)- 0.5*prop )
+
+
+p2 <-
+  ggplot(d4,
+         aes(x="",
+             y=prop,
+             fill=Ship.Mode)
+  ) +
+  geom_col(width=1,
+           color="white"
+  ) +
+  coord_polar(theta = "y",
+              start=0,
+              clip = "off"
+  ) +
+  geom_text_repel(data = d4,
+                  aes(y = ypos,
+                      label = paste0(
+                        Ship.Mode, "\n",
+                        round(prop,0),
+                        "%",
+                        "; ",
+                        dollar_format(largest_with_cents = 10)(total_sales))
+                  ),
+                  fontface = "bold",
+                  color = "white",
+                  bg.color = "black",
+                  size = 5,
+                  nudge_x = 0.1,
+                  nudge_y = 0.2,
+                  show.legend = FALSE,
+                  min.segment.length = Inf
+  ) +
+  labs(title = 'b) Shipment method') + 
+  theme_void() + 
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(), 
+        legend.position = "none") +
+  scale_fill_brewer(palette="Set1")
+
+library(patchwork)
+p1 + p2
+
+rev_cats <- ifelse(all(d2$prop >= round(1/nrow(d2),1)) == TRUE & all(d2$prop <= (1.5 * round(1/nrow(d2),1))) == TRUE ,
+                   'was',
+                   'was not'
+                   )
+rev_ships <- ifelse(all(d4$prop >= round(1/nrow(d4),1)) == TRUE & all(d4$prop <= (1.5 * round(1/nrow(d4),1))) == TRUE ,
+                   'was',
+                   'was not'
+                   )
+
+# big_cat <- d2$Category[d2$prop==max(d2$prop)] 
+big_cat <- subset(d2, d2$prop==max(d2$prop))# which product category contributed the most revenue?
+# lil_cat <- d2$Category[d2$prop==min(d2$prop)] # which product category contributed the least revenue?
+lil_cat <- subset(d2, d2$prop==min(d2$prop))# which product category contributed the most revenue?
+# big_ship <-d4$Ship.Mode[d4$prop==max(d4$prop)]# which shipment method contributed the most revenue?
+big_ship <-subset(d4, d4$prop==max(d4$prop))# which shipment method contributed the most revenue?
+# lil_ship <-d4$Ship.Mode[d4$prop==min(d4$prop)]# which shipment method contributed the least revenue?
+lil_ship <-subset(d4, d4$prop==min(d4$prop))# which shipment method contributed the least revenue?
+
+```
+
+
+Schrute Paper `r params$param1`'s `r format(max(good_months$Order.Date), "%Y")` revenue `r rev_cats` evenly distributed among product categories. `r ifelse(rev_cats == 'was',paste0('Each product category contributed about ', sprintf("%0.0f%%", 1/nrow(d2)), ' of revenue'), paste0(big_cat$Category, ' contributed the most revenue at ', sprintf("%0.0f%%", big_cat['prop']), ' whereas ', lil_cat$Category, ' contributed the least revenue at ', sprintf("%0.0f%%", lil_cat['prop'])))` (Figure 1.3 a).
+
+Schrute Paper `r params$param1`'s `r format(max(good_months$Order.Date), "%Y")` revenue `r rev_ships` evenly distributed among shipment methods. `r ifelse(rev_ships == 'was', paste0('Each shipment method contributed about ', sprintf("%0.0f%%", 1/nrow(d4)), ' of revenue'), paste0('Orders that shipped via ', big_ship$Ship.Mode, ' contributed the most revenue at ', sprintf("%0.0f%%", big_ship['prop']), ' whereas ', 'orders that moved via ', lil_ship$Ship.Mode, ' contributed the least revenue at ', sprintf("%0.0f%%", lil_ship['prop'])))` (Figure 1.3 b).
+
+<div style="page-break-after: always; visibility: hidden"> 
+\pagebreak 
+</div>
+
+*Table 1. Three largest profit and loss centers for Schrute Paper `r params$param1` in `r format(max(good_months$Order.Date), "%Y")`.*
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# ----Table: Revenue and profit summary by customer
+startdate_filter <- "2021-01-01"
+enddate_filter <- "2021-12-31"
+d2 <-
+  working_data %>%
+  filter(Order.Date >= startdate_filter & Order.Date <= enddate_filter) %>%
+  group_by(Customer.Name) %>%
+  dplyr::summarize(
+    avg_sale = mean(Sales),
+    avg_gp = mean(Profit),
+    avg_gpp = mean(avg_gp)/mean(avg_sale),
+    total_sales = sum(Sales),
+    total_gp = sum(Profit),
+    total_gpp = mean(Profit)/mean(Sales),
+    transactions = n()
+  ) %>%
+  arrange(., desc(total_gp)) # arrange summary table highest profit to lowest profit
+
+d3 <- d2[1:3,] # take the first three rows (top three highest earners)
+d3 <- d3 %>% arrange(., desc(total_gp))
+d4 <- d2[(nrow(d2)-2):(nrow(d2)),] # take the last three rows (top three lowest earners)
+d4 <- d4 %>% arrange(., (total_gp))
+wins_losses <- rbind(d3,d4) # table of highest-earners and lowest-earners
+
+d5 <-
+  working_data %>%
+  filter(Order.Date >= startdate_filter & Order.Date <= enddate_filter)
+years <- format(d5$Order.Date, "%Y")
+start_date <- min(years)
+end_date <- max(years)
+
+
+
+wins_losses %>%
+  gt() %>%
+  tab_header(
+    title = paste0(params$param1, " region profit and cost centers"),
+    subtitle = paste0(end_date)
+  ) %>%
+  fmt_currency(
+    columns = c(avg_sale, avg_gp, total_sales, total_gp),
+    decimals = 0
+  ) %>%
+  fmt_percent(
+    columns = c(avg_gpp, total_gpp),
+    decimals = 0,
+    scale_values = TRUE
+  )  %>%
+  cols_align(
+    align = "center",
+    columns = everything()
+  ) %>%
+  tab_spanner(
+    label = "Per order",
+    columns = c(avg_sale, avg_gp, avg_gpp),
+  )  %>%
+  tab_spanner(
+    label = "Annual totals",
+    columns = c(total_sales, total_gp, total_gpp, transactions),
+  ) %>%
+  cols_label(
+    Customer.Name = "Customer",
+    avg_sale = "Revenue",
+    avg_gp = "Gross profit ($)",
+    avg_gpp = "Gross profit (%)",
+    total_sales = "Revenue",
+    total_gp = "Gross profit ($)",
+    total_gpp = "Gross profit (%)",
+    transactions = "Order Volume"
+  )  %>%
+  tab_row_group(
+    label = "Three largest profit centers",
+    rows = 1:3
+  )  %>%
+  tab_style(
+    style = cell_text(style = "italic"),
+    locations = cells_row_groups(groups = "Three largest profit centers")
+  )   %>%
+  tab_style(
+    style = cell_fill(color = "lightgreen"),
+    locations = cells_body(
+      rows = 1:3)) %>%
+  tab_row_group(
+    label = "Three largest cost centers",
+    rows = 4:6
+  )  %>%
+  tab_style(
+    style = cell_text(style = "italic"),
+    locations = cells_row_groups(groups = "Three largest cost centers")
+  ) %>%
+  tab_style(
+    style = list(cell_fill(color = "firebrick"),
+                 cell_text(color = "white")),
+    locations = cells_body(
+      rows = 4:6)) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "red"),
+      cell_text(style = "italic",
+                weight = 1000)
+    ),
+    locations = cells_body(
+      columns = total_gp,
+      rows = 4:6
+    )) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#39ff14"),
+      cell_text(style = "italic",
+                weight = 1000)
+    ),
+    locations = cells_body(
+      columns = total_gp,
+      rows = 1:3
+    )) %>%
+  cols_width(
+    Customer.Name ~ px(90),
+    avg_sale ~ px(50),
+    avg_gp ~ px(80),
+    avg_gpp ~ px(80),
+    total_sales ~ px(80),
+    total_gp ~ px(80),
+    total_gpp ~ px(80),
+    transactions ~ px(80)
+  ) %>%
+  # cols_width(
+  #   everything() ~ pct(40)
+  # ) %>%
+  tab_options(
+    # table.width = pct(100),
+    table.font.size = px(10)
+  )
+
+```
+
+Schrute Paper `r params$param1`'s `r nrow(d4)` largest cost centers produced a loss of `r format_dollars(abs(sum(d4$total_gp)))` in `r end_date` (Table 1). `r d4[1,"Customer.Name"]` accounted for `r format_dollars(d4[1,"total_gp"])` or `r sprintf("%0.0f%%", (100 * d4[1,"total_gp"]/sum(d4$total_gp)))` of this loss. `r d4[1,"Customer.Name"]`'s orders produced an average loss of `r format_dollars(d4[1,"avg_gp"])` and `r sprintf("%0.0f%%", (100*d4[1, "avg_gpp"]))`.
+
+Schrute Paper `r params$param1`'s `r nrow(d3)` largest profit centers earned the region a profit of `r format_dollars(abs(sum(d3$total_gp)))` in `r end_date` (Table 1). `r d3[1,"Customer.Name"]` accounted for `r format_dollars(d3[1,"total_gp"])` or `r sprintf("%0.0f%%", (100 * d3[1,"total_gp"]/sum(d3$total_gp)))` of this profit. `r d3[1,"Customer.Name"]`'s orders produced an average profit of `r format_dollars(d3[1,"avg_gp"])` and `r sprintf("%0.0f%%", (100 * d3[1, "avg_gpp"]))`.
+
